@@ -7,6 +7,7 @@
 //
 
 #import "WMTableViewController.h"
+#import "WMSecondViewController.h"
 #import "WMLoopView.h"
 #import "WMPageConst.h"
 
@@ -56,7 +57,20 @@
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    [self.navigationController pushViewController:[WMTableViewController new] animated:YES];
+    WMSecondViewController *vc = [[WMSecondViewController alloc] init];
+    vc.pageController = (WMPageController *)self.parentViewController;
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.row % 2 == 0) {
+        return YES;
+    }
+    return NO;
+}
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
+
 }
 
 - (void)dealloc {

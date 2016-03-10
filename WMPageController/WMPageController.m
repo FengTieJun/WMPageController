@@ -136,6 +136,7 @@ static NSInteger const kWMUndefinedIndex = -1;
 }
 
 - (void)willEnterController:(UIViewController *)vc atIndex:(NSInteger)index {
+    _selectIndex = (int)index;
     if (self.childControllersCount && [self.delegate respondsToSelector:@selector(pageController:willEnterViewController:withInfo:)]) {
         NSDictionary *info = [self infoWithIndex:index];
         [self.delegate pageController:self willEnterViewController:vc withInfo:info];
@@ -144,17 +145,19 @@ static NSInteger const kWMUndefinedIndex = -1;
 
 // 完全进入控制器 (即停止滑动后调用)
 - (void)didEnterController:(UIViewController *)vc atIndex:(NSInteger)index {
+    if (!self.childControllersCount) { return; }
+    
     NSDictionary *info = [self infoWithIndex:index];
-    if (self.childControllersCount && [self.delegate respondsToSelector:@selector(pageController:didEnterViewController:withInfo:)]) {
+    if ([self.delegate respondsToSelector:@selector(pageController:didEnterViewController:withInfo:)]) {
         [self.delegate pageController:self didEnterViewController:vc withInfo:info];
     }
     
     // 当控制器创建时，调用延迟加载的代理方法
-    if (_initializedIndex == index && self.childControllersCount && [self.delegate respondsToSelector:@selector(pageController:lazyLoadViewController:withInfo:)]) {
+    if (_initializedIndex == index && [self.delegate respondsToSelector:@selector(pageController:lazyLoadViewController:withInfo:)]) {
         [self.delegate pageController:self lazyLoadViewController:vc withInfo:info];
         _initializedIndex = kWMUndefinedIndex;
     }
-    
+
     // 根据 preloadPolicy 预加载控制器
     if (self.preloadPolicy == WMPageControllerPreloadPolicyNever) { return; }
     int start = 0;
@@ -209,6 +212,7 @@ static NSInteger const kWMUndefinedIndex = -1;
 
 - (void)clearDatas {
     _hasInited = NO;
+    _selectIndex = self.selectIndex < self.childControllersCount ? self.selectIndex : (int)self.childControllersCount - 1;
     NSArray *displayingViewControllers = self.displayVC.allValues;
     for (UIViewController *vc in displayingViewControllers) {
         [vc.view removeFromSuperview];
@@ -499,6 +503,14 @@ static NSInteger const kWMUndefinedIndex = -1;
     _shouldNotScroll = NO;
 }
 
+- (void)adjustDisplayingViewControllersFrame {
+    [self.displayVC enumerateKeysAndObjectsUsingBlock:^(NSNumber * _Nonnull key, UIViewController * _Nonnull vc, BOOL * _Nonnull stop) {
+        NSInteger index = key.integerValue;
+        CGRect frame = [self.childViewFrames[index] CGRectValue];
+        vc.view.frame = frame;
+    }];
+}
+
 - (void)adjustMenuViewFrame {
     // 根据是否在导航栏上展示调整frame
     CGFloat menuHeight = self.menuHeight;
@@ -565,8 +577,11 @@ static NSInteger const kWMUndefinedIndex = -1;
     
     [self adjustMenuViewFrame];
     
+    [self adjustDisplayingViewControllersFrame];
+    
     [self removeSuperfluousViewControllersIfNeeded];
-    self.currentViewController.view.frame = [self.childViewFrames[self.selectIndex] CGRectValue];
+
+//    self.currentViewController.view.frame = [self.childViewFrames[self.selectIndex] CGRectValue];
     _hasInited = YES;
     [self.view layoutIfNeeded];
 }
@@ -622,9 +637,11 @@ static NSInteger const kWMUndefinedIndex = -1;
 
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
     _animate = YES;
+    self.menuView.userInteractionEnabled = NO;
 }
 
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
+    self.menuView.userInteractionEnabled = YES;
     _selectIndex = (int)scrollView.contentOffset.x / _viewWidth;
     [self removeSuperfluousViewControllersIfNeeded];
     self.currentViewController = self.displayVC[@(self.selectIndex)];
@@ -641,8 +658,8 @@ static NSInteger const kWMUndefinedIndex = -1;
 
 - (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {
     if (!decelerate) {
+        self.menuView.userInteractionEnabled = YES;
         CGFloat rate = _targetX / _viewWidth;
-        [self removeSuperfluousViewControllersIfNeeded];
         [self.menuView slideMenuAtProgress:rate];
     }
 }
@@ -653,14 +670,16 @@ static NSInteger const kWMUndefinedIndex = -1;
 
 #pragma mark - WMMenuView Delegate
 - (void)menuView:(WMMenuView *)menu didSelesctedIndex:(NSInteger)index currentIndex:(NSInteger)currentIndex {
+    if (!_hasInited) { return; }
     NSInteger gap = (NSInteger)labs(index - currentIndex);
     _selectIndex = (int)index;
     _animate = NO;
     CGPoint targetP = CGPointMake(_viewWidth*index, 0);
-    
-    [self.scrollView setContentOffset:targetP animated:gap > 1 ? NO : self.pageAnimatable];
+    BOOL animate = (gap > 1 || !_hasInited) ? NO : self.pageAnimatable;
+    [self.scrollView setContentOffset:targetP animated:animate];
     if (gap > 1 || !self.pageAnimatable) {
         // 由于不触发 -scrollViewDidScroll: 手动处理控制器
+        [self removeSuperfluousViewControllersIfNeeded];
         UIViewController *currentViewController = self.displayVC[@(currentIndex)];
         if (currentViewController) {
             [self removeViewController:currentViewController atIndex:currentIndex];
